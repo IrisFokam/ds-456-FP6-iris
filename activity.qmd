@@ -1,0 +1,39 @@
+---
+title: "A comprehensive introduction to the sf package in R"
+author: "Iris Fokam"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+format: 
+  html:
+    code-tools: 
+      source: true    # Shows "View Source"
+      toggle: false   # Hides the options to show/hide code chunks
+      caption: none   # Removes the "Code" caption (optional)
+    toc: true
+    toc-depth: 2
+    embed-resources: true
+bibliography: Library.bib
+abstract: " "
+---
+
+
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error=TRUE)
+library(tidyverse)
+library(sf) #install.packages('sf')
+library(spdep) #install.packages('spdep')
+library(spatialreg)
+```
+
+
+
+```{r}
+library(tidyverse)
+library(sf)
+load('SpatialData.RData')
+head(ramsey_data)
+# View(CodeBook) to see original descriptions from tidycensus
+```
+
+
+
