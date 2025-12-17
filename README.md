@@ -1,1 +1,2 @@
-# ds-456-FP6-iris
+### Comprehensive introduction to *sf* package in R
+Please see *activity* file.
