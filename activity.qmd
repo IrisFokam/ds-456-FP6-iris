@@ -35,5 +35,211 @@ head(ramsey_data)
 # View(CodeBook) to see original descriptions from tidycensus
 ```
 
+## Learning goals
+
+By the end of this activity, you should be able to:
+
+- Describe what the `sf` package does and what a "simple features" object is.
+- Inspect basic properties of an `sf` object (geometry column, attributes, and CRS).
+- Use bounding boxes (`st_bbox()`, sometimes called "sf_bbox") and cropping (`st_crop()`, sometimes called "sf_crop") to zoom in on a study area.
+- Use spatial relationships via `st_intersects()` (sometimes informally called "sf_intersects") to link polygon and point layers.
+- Make layered maps with `geom_sf()` from ggplot2.
+- Explain what a CRS (coordinate reference system) is, why it matters, and why spatial layers must share the same CRS before overlaying or plotting together.
+
+Throughout, we will use objects that were loaded from `SpatialData.RData`:
+
+- `ramsey_data`: census tracts for Ramsey County, with polygon geometry and attributes such as `IncomeE` (estimate of median household income) and proportion variables like `BirthPlace_Born`.
+- `colleges_sub`: point locations of colleges.
+- `areawater`: polygons for water bodies.
+- `roads_sub`: line features for major roads.
+
+## 1. What is an `sf` object?
+
+The `sf` package represents spatial vector data as data frames with a special geometry column.
+
+```{r}
+ramsey_data
+colnames(ramsey_data)
+class(ramsey_data)
+attr(ramsey_data, "sf_column")
+```
+
+Guiding questions:
+
+- How is `ramsey_data` similar to a regular data frame or tibble?
+- Which column stores the geometry information?
+- What kinds of attributes (e.g., `IncomeE`, `BirthPlace_Born`) are available for mapping and analysis?
+
+You can check the coordinate reference system (CRS) of any `sf` object using `st_crs()`:
+
+```{r}
+st_crs(ramsey_data)
+st_crs(colleges_sub)
+st_crs(areawater)
+st_crs(roads_sub)
+```
+
+## 2. What is a CRS, and why does it matter?
+
+A CRS (coordinate reference system) tells R how the numeric coordinates in your data relate to locations on the Earth. It includes:
+
+- The underlying model of the Earth (datum and ellipsoid).
+- The projection used to flatten the Earth onto a 2D plane (for projected systems).
+- The units of measurement (e.g., degrees, meters, feet).
+
+Why CRS is important:
+
+- Distances, areas, and directions are only meaningful if the CRS is appropriate (for example, a local projected CRS in meters for distance calculations).
+- Two datasets can only be overlaid and plotted correctly together if R knows how to align their coordinates in the same CRS.
+
+If `ramsey_data` and `colleges_sub` are in different CRSs, we must transform one to match the other before we combine or plot them together:
+
+```{r}
+# Make sure the colleges are in the same CRS as the census tracts
+ramsey_crs <- st_crs(ramsey_data)
+colleges_ramsey <- st_transform(colleges_sub, crs = ramsey_crs)
+
+st_crs(ramsey_data)
+st_crs(colleges_ramsey)
+```
+
+Key idea: before using `geom_sf()` to plot multiple layers on the same map, always check that `st_crs()` returns the same CRS for each object. This is why we say that "two data files need to have the same CRS to be plotted together correctly."
+
+## 3. Bounding boxes with `st_bbox()` (a.k.a. "sf_bbox")
+
+A bounding box is the smallest rectangle (aligned with the x and y axes) that contains all the geometry in an `sf` object. In `sf`, the function is called `st_bbox()` (you may also see it described informally as `sf_bbox`):
+
+```{r}
+bbox_ramsey <- st_bbox(ramsey_data)
+bbox_ramsey
+```
+
+Guiding questions:
+
+- What are the `xmin`, `xmax`, `ymin`, and `ymax` values?
+- How do these values change if you compute `st_bbox()` for `colleges_ramsey` or `areawater`?
+
+```{r}
+st_bbox(colleges_ramsey)
+st_bbox(areawater)
+```
+
+Bounding boxes are especially useful for zooming into an area using `st_crop()`.
+
+## 4. Cropping with `st_crop()` (a.k.a. "sf_crop")
+
+The `st_crop()` function (sometimes called "sf_crop") cuts an `sf` object down to a smaller spatial extent defined by a bounding box or another object.
+
+Example 1: crop `ramsey_data` to the bounding box of the colleges.
+
+```{r}
+bbox_colleges <- st_bbox(colleges_ramsey)
+ramsey_near_colleges <- st_crop(ramsey_data, bbox_colleges)
+
+ramsey_near_colleges
+```
+
+Example 2: crop the road network to the extent of `ramsey_near_colleges`.
+
+```{r}
+roads_near_colleges <- st_crop(roads_sub, st_bbox(ramsey_near_colleges))
+roads_near_colleges
+```
+
+Guiding questions:
+
+- How many tracts are in `ramsey_near_colleges` compared to the full `ramsey_data`?
+- What happens to the roads after cropping? Do any new line endpoints appear where they are cut by the crop boundary?
+
+## 5. Spatial relationships with `st_intersects()` (a.k.a. "sf_intersects")
+
+Spatial operations let us answer questions like "Which census tracts contain at least one college?" The `sf` function for this is `st_intersects()` (often referred to informally as `sf_intersects`):
+
+```{r}
+# Which tracts intersect at least one college point?
+intersections <- st_intersects(ramsey_data, colleges_ramsey)
+
+# Logical vector: does each tract intersect any college?
+tract_has_college <- lengths(intersections) > 0
+
+sum(tract_has_college)           # number of tracts with a college
+mean(tract_has_college)          # proportion of tracts with a college
+
+ramsey_with_colleges <- ramsey_data %>%
+  mutate(has_college = tract_has_college)
+```
+
+You can also use `st_intersects()` to relate water bodies to tracts:
+
+```{r}
+water_intersections <- st_intersects(ramsey_data, areawater)
+tract_touches_water <- lengths(water_intersections) > 0
+
+ramsey_with_water <- ramsey_data %>%
+  mutate(touches_water = tract_touches_water)
+```
+
+Guiding questions:
+
+- How might population or income (`IncomeE`) differ between tracts that contain colleges and those that do not?
+- Do tracts that touch water have different values of `BirthPlace_Born` or other demographic variables?
+
+## 6. Mapping with `geom_sf()`
+
+The `geom_sf()` function from ggplot2 is designed for plotting `sf` objects. It understands the geometry column and the CRS automatically.
+
+Example: map median income by census tract, overlaying college locations.
+
+```{r}
+library(ggplot2)
+
+ggplot() +
+  geom_sf(data = ramsey_data, aes(fill = IncomeE), color = NA) +
+  geom_sf(data = colleges_ramsey, color = "red", size = 1.5) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey80") +
+  labs(
+    title = "Ramsey County Tracts with College Locations",
+    fill = "Median income (IncomeE)"
+  ) +
+  theme_minimal()
+```
+
+Example: focus on the cropped study area near colleges and show water and roads.
+
+```{r}
+ggplot() +
+  geom_sf(data = ramsey_near_colleges, aes(fill = BirthPlace_Born), color = "white", size = 0.1) +
+  geom_sf(data = areawater, fill = "lightblue", color = NA) +
+  geom_sf(data = roads_near_colleges, color = "black", size = 0.2) +
+  geom_sf(data = colleges_ramsey, color = "red", size = 1) +
+  labs(
+    title = "Colleges, Roads, and Water near Selected Ramsey County Tracts",
+    fill  = "Proportion born in U.S. (BirthPlace_Born)"
+  ) +
+  theme_minimal()
+```
+
+Notice that we did not specify any CRS inside `geom_sf()`. Because all of the layers have the same CRS, the function can align and plot them correctly.
+
+## 7. Your turn: practice questions
+
+Use the patterns above to answer the following questions. Write your code and brief answers under each question.
+
+1. Use `st_crs()` to verify that `ramsey_data`, `colleges_sub`, `areawater`, and `roads_sub` either all share the same CRS or transform them so that they match. Explain why this step is necessary before combining layers.
+2. Create a new object that keeps only tracts that both:
+   - intersect at least one college (`st_intersects()`), and
+   - touch at least one water body.
+3. Make a map of this subset using `geom_sf()`, filling tracts by `IncomeE`. What spatial pattern do you see in income around colleges and near water?
+4. Use `st_bbox()` and `st_crop()` to create a focused map window around the densest cluster of colleges. Plot tracts, roads, water, and colleges in this window with `geom_sf()`.
+5. In your own words, summarize:
+   - what a CRS is,
+   - why CRS is important for spatial analysis,
+   - and why two spatial datasets must share the same CRS before you overlay or plot them together.
+
+## References and resources
+
+- Pebesma, E. (2018). *Simple Features for R: Standardized Support for Spatial Vector Data*. The R Journal, 10(1), 439–446.
+- `sf` package website and vignettes: search for “R package sf vignettes” in your browser for detailed tutorials and reference materials.
+- ggplot2 documentation for `geom_sf()` (part of the ggplot2 reference manual) for additional mapping options and examples.
 
 
